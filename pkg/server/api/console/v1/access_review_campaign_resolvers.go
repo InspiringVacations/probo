@@ -659,10 +659,11 @@ func (r *mutationResolver) CreateAccessReviewSource(ctx context.Context, input t
 		ctx,
 		scope,
 		accessreview.CreateAccessReviewSourceRequest{
-			OrganizationID: input.OrganizationID,
-			ConnectorID:    input.ConnectorID,
-			Name:           input.Name,
-			CsvData:        input.CSVData,
+			OrganizationID:     input.OrganizationID,
+			ConnectorID:        input.ConnectorID,
+			ConnectorAccountID: input.ConnectorAccountID,
+			Name:               input.Name,
+			CsvData:            input.CSVData,
 		},
 	)
 	if err != nil {

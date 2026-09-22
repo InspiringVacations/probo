@@ -30,7 +30,6 @@ import (
 	"go.gearno.de/kit/log"
 	"go.gearno.de/kit/pg"
 	"go.probo.inc/probo/pkg/accessreview/drivers"
-	"go.probo.inc/probo/pkg/cloud"
 	"go.probo.inc/probo/pkg/connector"
 	"go.probo.inc/probo/pkg/coredata"
 	"go.probo.inc/probo/pkg/gid"
@@ -44,10 +43,11 @@ const (
 
 type (
 	CreateAccessReviewSourceRequest struct {
-		OrganizationID gid.GID
-		ConnectorID    *gid.GID
-		Name           string
-		CsvData        *string
+		OrganizationID     gid.GID
+		ConnectorID        *gid.GID
+		ConnectorAccountID *gid.GID
+		Name               string
+		CsvData            *string
 	}
 
 	UpdateAccessReviewSourceRequest struct {
@@ -113,13 +113,14 @@ func (s *Service) EnsureSource(
 
 	now := time.Now()
 	source := &coredata.AccessReviewSource{
-		ID:             gid.New(scope.GetTenantID(), coredata.AccessReviewSourceEntityType),
-		OrganizationID: req.OrganizationID,
-		ConnectorID:    req.ConnectorID,
-		Name:           req.Name,
-		CsvData:        req.CsvData,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                 gid.New(scope.GetTenantID(), coredata.AccessReviewSourceEntityType),
+		OrganizationID:     req.OrganizationID,
+		ConnectorID:        req.ConnectorID,
+		ConnectorAccountID: req.ConnectorAccountID,
+		Name:               req.Name,
+		CsvData:            req.CsvData,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	created := false
@@ -129,9 +130,16 @@ func (s *Service) EnsureSource(
 		func(ctx context.Context, conn pg.Tx) error {
 			if req.ConnectorID != nil {
 				connector := &coredata.Connector{}
-				if err := connector.LoadMetadataByID(ctx, conn, scope, *req.ConnectorID); err != nil {
+				if err := connector.LoadByID(ctx, conn, scope, *req.ConnectorID, s.encryptionKey); err != nil {
 					return fmt.Errorf("cannot load connector: %w", err)
 				}
+
+				account, err := resolveSourceAccount(ctx, s, conn, scope, connector, req.ConnectorAccountID)
+				if err != nil {
+					return err
+				}
+
+				source.ConnectorAccountID = &account.ID
 
 				// Unlocked read: a concurrent bridge bind could in theory
 				// race this check. Organic flows only ever bind their own
@@ -160,8 +168,8 @@ func (s *Service) EnsureSource(
 			}
 
 			existing := &coredata.AccessReviewSource{}
-			if err := existing.LoadByConnectorID(ctx, conn, scope, *req.ConnectorID); err != nil {
-				return fmt.Errorf("cannot load access source by connector: %w", err)
+			if err := existing.LoadByConnectorAccountID(ctx, conn, scope, *source.ConnectorAccountID); err != nil {
+				return fmt.Errorf("cannot load access source by connector account: %w", err)
 			}
 
 			*source = *existing
@@ -174,6 +182,67 @@ func (s *Service) EnsureSource(
 	}
 
 	return source, created, nil
+}
+
+func resolveSourceAccount(
+	ctx context.Context,
+	s *Service,
+	conn pg.Tx,
+	scope coredata.Scoper,
+	cnnctr *coredata.Connector,
+	requestedAccountID *gid.GID,
+) (*coredata.ConnectorAccount, error) {
+	if requestedAccountID != nil {
+		account := &coredata.ConnectorAccount{}
+		if err := account.LoadByID(ctx, conn, scope, *requestedAccountID); err != nil {
+			return nil, fmt.Errorf("cannot load connector account: %w", err)
+		}
+
+		if account.ConnectorID != cnnctr.ID {
+			return nil, fmt.Errorf("cannot create access source: connector account does not belong to connector")
+		}
+
+		return account, nil
+	}
+
+	externalID, name := s.initialAccount(cnnctr)
+
+	account, err := coredata.UpsertInitialAccount(ctx, conn, scope, cnnctr, externalID, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if account != nil {
+		return account, nil
+	}
+
+	standalone := &coredata.ConnectorAccount{}
+
+	err = standalone.LoadStandaloneByConnectorID(ctx, conn, scope, cnnctr.ID)
+	if err == nil {
+		return standalone, nil
+	}
+
+	if !errors.Is(err, coredata.ErrResourceNotFound) {
+		return nil, err
+	}
+
+	now := time.Now()
+
+	placeholder := &coredata.ConnectorAccount{
+		ID:                gid.New(scope.GetTenantID(), coredata.ConnectorAccountEntityType),
+		OrganizationID:    cnnctr.OrganizationID,
+		ConnectorID:       cnnctr.ID,
+		ExternalAccountID: "",
+		Name:              "",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if _, err := placeholder.Upsert(ctx, conn, scope); err != nil {
+		return nil, fmt.Errorf("cannot insert connector account: %w", err)
+	}
+
+	return placeholder, nil
 }
 
 func (s *Service) GetSource(
@@ -227,9 +296,16 @@ func (s *Service) UpdateSource(
 			if req.ConnectorID != nil {
 				if *req.ConnectorID != nil {
 					connector := &coredata.Connector{}
-					if err := connector.LoadMetadataByID(ctx, conn, scope, **req.ConnectorID); err != nil {
+					if err := connector.LoadByID(ctx, conn, scope, **req.ConnectorID, s.encryptionKey); err != nil {
 						return fmt.Errorf("cannot load connector: %w", err)
 					}
+
+					account, err := resolveSourceAccount(ctx, s, conn, scope, connector, nil)
+					if err != nil {
+						return err
+					}
+
+					source.ConnectorAccountID = &account.ID
 
 					bridges := &coredata.SCIMBridges{}
 
@@ -258,6 +334,10 @@ func (s *Service) UpdateSource(
 				}
 
 				source.ConnectorID = *req.ConnectorID
+
+				if source.ConnectorID == nil {
+					source.ConnectorAccountID = nil
+				}
 
 				// A (re)linked connector may resolve to a different instance
 				// name; clear the synced flag so the source-name worker picks
@@ -530,6 +610,17 @@ func (s *Service) ConfigureAccessReviewSource(
 				return fmt.Errorf("cannot update connector: %w", err)
 			}
 
+			externalID, name := s.initialAccount(dbConnector)
+
+			account, err := coredata.SyncStandaloneAccount(ctx, conn, scope, dbConnector, externalID, name)
+			if err != nil {
+				return err
+			}
+
+			if account != nil && (source.ConnectorAccountID == nil || *source.ConnectorAccountID != account.ID) {
+				source.ConnectorAccountID = &account.ID
+			}
+
 			// The selected org changed, so the resolvable instance name may
 			// have too; clear the synced flag so the source-name worker
 			// re-resolves the display name, with a fresh retry budget.
@@ -593,7 +684,7 @@ func (s *Service) ProbeConnector(
 	// everything else returned here is Probo's own.
 	switch conn := dbConnector.Connection.(type) {
 	case *connector.WorkloadIdentityConnection:
-		session, err := s.buildCloudSession(ctx, dbConnector)
+		session, err := s.OpenSession(ctx, dbConnector, "")
 		if err != nil {
 			return err
 		}
@@ -636,36 +727,6 @@ func (s *Service) ProbeConnector(
 			dbConnector.Provider,
 		)
 	}
-}
-
-// buildCloudSession opens authenticated access to the cloud account a workload
-// identity connector points at, delegating to the provider that knows which
-// role and region its settings name.
-func (s *Service) buildCloudSession(
-	ctx context.Context,
-	dbConnector *coredata.Connector,
-) (cloud.Session, error) {
-	if s.federation == nil {
-		return nil, fmt.Errorf(
-			"cannot reach %s connector: identity federation is not configured in this deployment",
-			dbConnector.Provider,
-		)
-	}
-
-	reg, ok := s.providerRegistry.Get(dbConnector.Provider)
-	if !ok || reg.WorkloadIdentity == nil {
-		return nil, fmt.Errorf(
-			"cannot reach %s connector: provider offers no workload identity path",
-			dbConnector.Provider,
-		)
-	}
-
-	session, err := reg.WorkloadIdentity.NewSession(ctx, s.federation, dbConnector)
-	if err != nil {
-		return nil, fmt.Errorf("cannot open cloud session for %s connector: %w", dbConnector.Provider, err)
-	}
-
-	return session, nil
 }
 
 // ProviderOrganizations lists the orgs/workspaces the connector backing the

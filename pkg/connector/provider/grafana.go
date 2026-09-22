@@ -32,7 +32,10 @@ import (
 
 func grafanaRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderGrafana,
+		Provider: coredata.ConnectorProviderGrafana,
+		InitialAccount: initialAccount(func(s coredata.GrafanaConnectorSettings) string {
+			return s.BaseURL
+		}),
 		DisplayName:      "Grafana",
 		DocumentationURL: accessReviewDocsURL("grafana"),
 		APIKey: &APIKeyConfig{

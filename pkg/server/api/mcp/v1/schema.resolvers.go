@@ -3836,10 +3836,11 @@ func (r *Resolver) CreateAccessReviewSourceTool(ctx context.Context, req *mcp.Ca
 	}
 
 	source, created, err := r.accessReview.EnsureSource(ctx, scope, accessreview.CreateAccessReviewSourceRequest{
-		OrganizationID: input.OrganizationID,
-		ConnectorID:    input.ConnectorID,
-		Name:           input.Name,
-		CsvData:        input.CsvData,
+		OrganizationID:     input.OrganizationID,
+		ConnectorID:        input.ConnectorID,
+		ConnectorAccountID: input.ConnectorAccountID,
+		Name:               input.Name,
+		CsvData:            input.CsvData,
 	})
 	if err != nil {
 		return nil, types.CreateAccessReviewSourceOutput{}, fmt.Errorf("cannot create access source: %w", err)
@@ -10035,7 +10036,6 @@ func (r *Resolver) GetCommonGVLCatalogTool(ctx context.Context, req *mcp.CallToo
 		CommonGvlCatalog: types.NewCommonGVLCatalog(catalog),
 	}, nil
 }
-
 func (r *Resolver) PublishRiskAnalysisTool(ctx context.Context, req *mcp.CallToolRequest, input *types.PublishRiskAnalysisInput) (*mcp.CallToolResult, types.PublishRiskAnalysisOutput, error) {
 	scope, err := r.Authorize(ctx, input.ID, riskmanagement.ActionRiskAnalysisPublish)
 	if err != nil {
@@ -10053,4 +10053,153 @@ func (r *Resolver) PublishRiskAnalysisTool(ctx context.Context, req *mcp.CallToo
 		DocumentID:        document.ID,
 		DocumentVersionID: documentVersion.ID,
 	}, nil
+}
+
+func (r *Resolver) ListConnectorsTool(ctx context.Context, req *mcp.CallToolRequest, input *types.ListConnectorsInput) (*mcp.CallToolResult, types.ListConnectorsOutput, error) {
+	scope, err := r.Authorize(ctx, input.OrganizationID, probo.ActionConnectorList)
+	if err != nil {
+		return nil, types.ListConnectorsOutput{}, err
+	}
+
+	connectors, err := r.proboSvc.Connectors.ListAllForOrganizationID(ctx, scope, input.OrganizationID)
+	if err != nil {
+		r.logger.ErrorCtx(ctx, "cannot list connectors", log.Error(err))
+
+		return nil, types.ListConnectorsOutput{}, fmt.Errorf("internal server error")
+	}
+
+	result := make([]*types.Connector, len(connectors))
+	for i, cnnctr := range connectors {
+		result[i] = types.NewConnector(cnnctr, r.connectorConnectionStatus(ctx, scope, cnnctr.ID))
+	}
+
+	return nil, types.ListConnectorsOutput{Connectors: result}, nil
+}
+
+func (r *Resolver) GetConnectorTool(ctx context.Context, req *mcp.CallToolRequest, input *types.GetConnectorInput) (*mcp.CallToolResult, types.GetConnectorOutput, error) {
+	scope, err := r.Authorize(ctx, input.ConnectorID, probo.ActionConnectorGet)
+	if err != nil {
+		return nil, types.GetConnectorOutput{}, err
+	}
+
+	cnnctr, err := r.proboSvc.Connectors.Get(ctx, scope, input.ConnectorID)
+	if err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return nil, types.GetConnectorOutput{}, fmt.Errorf("connector not found")
+		}
+
+		r.logger.ErrorCtx(ctx, "cannot get connector", log.Error(err))
+
+		return nil, types.GetConnectorOutput{}, fmt.Errorf("internal server error")
+	}
+
+	return nil, types.GetConnectorOutput{
+		Connector: types.NewConnector(cnnctr, r.connectorConnectionStatus(ctx, scope, cnnctr.ID)),
+	}, nil
+}
+
+func (r *Resolver) CreateOrganizationConnectorTool(ctx context.Context, req *mcp.CallToolRequest, input *types.CreateOrganizationConnectorInput) (*mcp.CallToolResult, types.CreateOrganizationConnectorOutput, error) {
+	scope, err := r.Authorize(ctx, input.OrganizationID, probo.ActionConnectorCreate)
+	if err != nil {
+		return nil, types.CreateOrganizationConnectorOutput{}, err
+	}
+
+	if r.identityFederation == nil {
+		return nil, types.CreateOrganizationConnectorOutput{}, fmt.Errorf("identity federation is not configured in this deployment")
+	}
+
+	raw, err := r.organizationConnectorSettings(ctx, input)
+	if err != nil {
+		return nil, types.CreateOrganizationConnectorOutput{}, err
+	}
+
+	cnnctr, err := r.proboSvc.Connectors.Create(ctx, scope, probo.CreateConnectorRequest{
+		OrganizationID: input.OrganizationID,
+		Provider:       input.Provider,
+		Protocol:       coredata.ConnectorProtocolWorkloadIdentity,
+		Connection:     &connector.WorkloadIdentityConnection{},
+		RawSettings:    raw,
+	})
+	if err != nil {
+		r.logger.ErrorCtx(ctx, "cannot create organization connector", log.Error(err))
+
+		return nil, types.CreateOrganizationConnectorOutput{}, fmt.Errorf("internal server error")
+	}
+
+	discovered := []*types.DiscoveredConnectorAccount{}
+
+	if err := r.accessReview.ProbeConnector(ctx, scope, cnnctr.ID); err != nil {
+		r.logger.WarnCtx(ctx, "organization connector probe failed", log.String("connector_id", cnnctr.ID.String()))
+	} else {
+		accounts, err := r.accessReview.DiscoverAccounts(ctx, scope, cnnctr.ID)
+		if err != nil {
+			r.logger.WarnCtx(ctx, "cannot discover organization connector accounts", log.String("connector_id", cnnctr.ID.String()))
+		} else {
+			discovered = types.NewDiscoveredConnectorAccounts(accounts)
+		}
+	}
+
+	return nil, types.CreateOrganizationConnectorOutput{
+		Connector:          types.NewConnector(cnnctr, r.connectorConnectionStatus(ctx, scope, cnnctr.ID)),
+		DiscoveredAccounts: discovered,
+	}, nil
+}
+
+func (r *Resolver) DiscoverConnectorAccountsTool(ctx context.Context, req *mcp.CallToolRequest, input *types.DiscoverConnectorAccountsInput) (*mcp.CallToolResult, types.DiscoverConnectorAccountsOutput, error) {
+	scope, err := r.Authorize(ctx, input.ConnectorID, probo.ActionConnectorDiscover)
+	if err != nil {
+		return nil, types.DiscoverConnectorAccountsOutput{}, err
+	}
+
+	accounts, err := r.accessReview.DiscoverAccounts(ctx, scope, input.ConnectorID)
+	if err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return nil, types.DiscoverConnectorAccountsOutput{}, fmt.Errorf("connector not found")
+		}
+
+		r.logger.ErrorCtx(ctx, "cannot discover connector accounts", log.Error(err))
+
+		return nil, types.DiscoverConnectorAccountsOutput{}, fmt.Errorf("internal server error")
+	}
+
+	return nil, types.DiscoverConnectorAccountsOutput{
+		Accounts: types.NewDiscoveredConnectorAccounts(accounts),
+	}, nil
+}
+
+func (r *Resolver) EnableConnectorAccountsTool(ctx context.Context, req *mcp.CallToolRequest, input *types.EnableConnectorAccountsInput) (*mcp.CallToolResult, types.EnableConnectorAccountsOutput, error) {
+	scope, err := r.Authorize(ctx, input.ConnectorID, probo.ActionConnectorCreate)
+	if err != nil {
+		return nil, types.EnableConnectorAccountsOutput{}, err
+	}
+
+	reqAccounts := make([]probo.EnableConnectorAccount, 0, len(input.Accounts))
+	for _, account := range input.Accounts {
+		if account == nil {
+			continue
+		}
+
+		reqAccounts = append(reqAccounts, probo.EnableConnectorAccount{
+			ExternalAccountID: account.ExternalAccountID,
+			Name:              account.Name,
+		})
+	}
+
+	enabled, err := r.proboSvc.Connectors.EnableAccounts(ctx, scope, input.ConnectorID, reqAccounts)
+	if err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return nil, types.EnableConnectorAccountsOutput{}, fmt.Errorf("connector not found")
+		}
+
+		r.logger.ErrorCtx(ctx, "cannot enable connector accounts", log.Error(err))
+
+		return nil, types.EnableConnectorAccountsOutput{}, fmt.Errorf("internal server error")
+	}
+
+	accounts := make([]*types.ConnectorAccount, len(enabled))
+	for i, account := range enabled {
+		accounts[i] = types.NewConnectorAccount(account)
+	}
+
+	return nil, types.EnableConnectorAccountsOutput{ConnectorAccounts: accounts}, nil
 }

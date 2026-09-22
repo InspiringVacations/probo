@@ -32,7 +32,10 @@ import (
 
 func supabaseRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderSupabase,
+		Provider: coredata.ConnectorProviderSupabase,
+		InitialAccount: initialAccount(func(s coredata.SupabaseConnectorSettings) string {
+			return s.OrganizationSlug
+		}),
 		DisplayName:      "Supabase",
 		DocumentationURL: accessReviewDocsURL("supabase"),
 		Endpoints: Endpoints{

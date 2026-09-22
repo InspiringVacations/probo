@@ -35,7 +35,10 @@ func bitbucketRegistration() *Registration {
 	// time (`account` for workspace membership). They are not passed in
 	// the authorize URL.
 	return &Registration{
-		Provider:    coredata.ConnectorProviderBitbucket,
+		Provider: coredata.ConnectorProviderBitbucket,
+		InitialAccount: initialAccount(func(s coredata.BitbucketConnectorSettings) string {
+			return s.Workspace
+		}),
 		DisplayName: "Bitbucket",
 		Endpoints: Endpoints{
 			Auth:  "https://bitbucket.org/site/oauth2/authorize",

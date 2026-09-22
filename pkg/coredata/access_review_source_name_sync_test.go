@@ -61,13 +61,25 @@ func seedNameSyncSource(
 	connectorID, err := insertConnector(ctx, client, scope, organizationID, coredata.ConnectorProviderMetabase, key)
 	require.NoError(t, err)
 
+	account, err := insertConnectorAccount(
+		ctx,
+		client,
+		scope,
+		organizationID,
+		connectorID,
+		"implied",
+		"implied",
+	)
+	require.NoError(t, err)
+
 	source := &coredata.AccessReviewSource{
-		ID:             gid.New(scope.GetTenantID(), coredata.AccessReviewSourceEntityType),
-		OrganizationID: organizationID,
-		ConnectorID:    &connectorID,
-		Name:           "Metabase",
-		CreatedAt:      createdAt,
-		UpdatedAt:      time.Now().UTC(),
+		ID:                 gid.New(scope.GetTenantID(), coredata.AccessReviewSourceEntityType),
+		OrganizationID:     organizationID,
+		ConnectorID:        &connectorID,
+		ConnectorAccountID: &account.ID,
+		Name:               "Metabase",
+		CreatedAt:          createdAt,
+		UpdatedAt:          time.Now().UTC(),
 	}
 
 	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {

@@ -229,6 +229,23 @@ func TestMarshalWorkloadIdentitySettings(t *testing.T) {
 		assert.Equal(t, string(cloudazure.EnvironmentPublic), got["environment"])
 	})
 
+	t.Run("azure accepts an empty subscription", func(t *testing.T) {
+		t.Parallel()
+
+		raw, err := probo.MarshalWorkloadIdentitySettings(
+			probo.WorkloadIdentitySettingsInput{
+				Provider:      coredata.ConnectorProviderAzure,
+				AzureTenantID: testAzureTenantID,
+				AzureClientID: testAzureClientID,
+			},
+		)
+		require.NoError(t, err)
+
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(raw, &got))
+		assert.Equal(t, "", got["subscription_id"])
+	})
+
 	t.Run("refuses missing azure fields", func(t *testing.T) {
 		t.Parallel()
 
@@ -240,7 +257,6 @@ func TestMarshalWorkloadIdentitySettings(t *testing.T) {
 		}{
 			{name: "empty tenant", clientID: testAzureClientID, subscriptionID: testAzureSubscriptionID},
 			{name: "empty client", tenantID: testAzureTenantID, subscriptionID: testAzureSubscriptionID},
-			{name: "empty subscription", tenantID: testAzureTenantID, clientID: testAzureClientID},
 			{name: "all empty"},
 		}
 
@@ -261,7 +277,7 @@ func TestMarshalWorkloadIdentitySettings(t *testing.T) {
 					require.Error(t, err)
 					assert.Equal(
 						t,
-						"azureTenantId, azureClientId and azureSubscriptionId are required",
+						"azureTenantId and azureClientId are required",
 						err.Error(),
 					)
 					assert.NotErrorIs(t, err, probo.ErrMarshalWorkloadIdentitySettings)

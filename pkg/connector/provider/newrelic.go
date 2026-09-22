@@ -40,7 +40,10 @@ import (
 // host is resolved from it; Endpoints therefore carries no APIBase.
 func newRelicRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderNewRelic,
+		Provider: coredata.ConnectorProviderNewRelic,
+		InitialAccount: initialAccount(func(s coredata.NewRelicConnectorSettings) string {
+			return s.Region
+		}),
 		DisplayName:      "New Relic",
 		DocumentationURL: accessReviewDocsURL("new-relic"),
 		APIKey: &APIKeyConfig{

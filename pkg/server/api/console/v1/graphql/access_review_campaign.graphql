@@ -338,6 +338,7 @@ type AccessReviewSource implements Node {
     organization: Organization! @goField(forceResolver: true)
     connectorId: ID
     connector: Connector @goField(forceResolver: true)
+    connectorAccountId: ID
     name: String!
     csvData: String
     providerOrganizations: ProviderOrganizations! @goField(forceResolver: true)
@@ -580,6 +581,7 @@ extend type Mutation {
 input CreateAccessReviewSourceInput {
     organizationId: ID!
     connectorId: ID
+    connectorAccountId: ID
     name: String!
     csvData: String
 }

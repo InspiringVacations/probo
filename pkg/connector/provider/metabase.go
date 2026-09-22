@@ -34,7 +34,10 @@ import (
 
 func metabaseRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderMetabase,
+		Provider: coredata.ConnectorProviderMetabase,
+		InitialAccount: initialAccount(func(s coredata.MetabaseConnectorSettings) string {
+			return s.InstanceURL
+		}),
 		DisplayName:      "Metabase",
 		DocumentationURL: accessReviewDocsURL("metabase"),
 		APIKey: &APIKeyConfig{

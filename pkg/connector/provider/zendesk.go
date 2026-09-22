@@ -44,7 +44,10 @@ func zendeskRegistration() *Registration {
 	// client carries a client_secret, which both authenticates the token
 	// exchange (default post-form) and signs the state.
 	return &Registration{
-		Provider:    coredata.ConnectorProviderZendesk,
+		Provider: coredata.ConnectorProviderZendesk,
+		InitialAccount: initialAccount(func(s coredata.ZendeskConnectorSettings) string {
+			return s.Subdomain
+		}),
 		DisplayName: "Zendesk",
 		OAuth2: &OAuth2Config{
 			Scopes:               []string{"users:read"},

@@ -33,7 +33,10 @@ import (
 func netlifyRegistration() *Registration {
 	// Netlify OAuth flow has no scope granularity, so OAuth2Scopes is empty.
 	return &Registration{
-		Provider:    coredata.ConnectorProviderNetlify,
+		Provider: coredata.ConnectorProviderNetlify,
+		InitialAccount: initialAccount(func(s coredata.NetlifyConnectorSettings) string {
+			return s.AccountSlug
+		}),
 		DisplayName: "Netlify",
 		Endpoints: Endpoints{
 			Auth:  "https://app.netlify.com/authorize",

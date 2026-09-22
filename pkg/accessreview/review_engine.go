@@ -263,7 +263,7 @@ func (s *Service) newCloudDriver(
 	reg *provider.Registration,
 	dbConnector *coredata.Connector,
 ) (drivers.Driver, error) {
-	session, err := s.buildCloudSession(ctx, dbConnector)
+	session, err := s.OpenSession(ctx, dbConnector, "")
 	if err != nil {
 		return nil, err
 	}

@@ -45,13 +45,32 @@ func insertSource(
 	t.Helper()
 
 	now := time.Now().UTC()
+
+	var accountID *gid.GID
+
+	if connectorID != nil {
+		account, err := insertConnectorAccount(
+			ctx,
+			client,
+			scope,
+			organizationID,
+			*connectorID,
+			"implied",
+			"implied",
+		)
+		require.NoError(t, err)
+
+		accountID = &account.ID
+	}
+
 	source := &coredata.AccessReviewSource{
-		ID:             gid.New(scope.GetTenantID(), coredata.AccessReviewSourceEntityType),
-		OrganizationID: organizationID,
-		ConnectorID:    connectorID,
-		Name:           "owner test source",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                 gid.New(scope.GetTenantID(), coredata.AccessReviewSourceEntityType),
+		OrganizationID:     organizationID,
+		ConnectorID:        connectorID,
+		ConnectorAccountID: accountID,
+		Name:               "owner test source",
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	var inserted bool
@@ -69,8 +88,8 @@ func insertSource(
 
 // TestAccessReviewSourceInsert_IdempotentPerConnector pins the
 // index-arbitrated idempotency CreateSource relies on: the second
-// insert against the same connector is skipped, while CSV sources
-// (nil connector) always insert.
+// insert against the same connector account is skipped, while CSV
+// sources (nil connector) always insert.
 func TestAccessReviewSourceInsert_IdempotentPerConnector(t *testing.T) {
 	t.Parallel()
 

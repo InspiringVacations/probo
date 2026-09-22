@@ -61,7 +61,10 @@ const (
 // source keeps its generic name.
 func retoolRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderRetool,
+		Provider: coredata.ConnectorProviderRetool,
+		InitialAccount: initialAccount(func(s coredata.RetoolConnectorSettings) string {
+			return s.BaseURL
+		}),
 		DisplayName:      "Retool",
 		DocumentationURL: accessReviewDocsURL("retool"),
 		APIKey: &APIKeyConfig{

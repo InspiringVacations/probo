@@ -32,7 +32,10 @@ import (
 
 func scalewayRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderScaleway,
+		Provider: coredata.ConnectorProviderScaleway,
+		InitialAccount: initialAccount(func(s coredata.ScalewayConnectorSettings) string {
+			return s.OrganizationID
+		}),
 		DisplayName:      "Scaleway",
 		DocumentationURL: accessReviewDocsURL("scaleway"),
 		APIKey: &APIKeyConfig{

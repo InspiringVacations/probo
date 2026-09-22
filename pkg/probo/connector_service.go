@@ -30,11 +30,29 @@ import (
 	"go.gearno.de/crypto/uuid"
 	"go.gearno.de/kit/pg"
 	"go.probo.inc/probo/pkg/connector"
+	"go.probo.inc/probo/pkg/connector/provider"
 	"go.probo.inc/probo/pkg/coredata"
 	"go.probo.inc/probo/pkg/gid"
 	"go.probo.inc/probo/pkg/page"
 	"go.probo.inc/probo/pkg/validator"
 )
+
+func (s *ConnectorService) initialAccount(c *coredata.Connector) (string, string) {
+	if s.providerRegistry == nil || c == nil {
+		return "", ""
+	}
+
+	reg, ok := s.providerRegistry.Get(c.Provider)
+	if !ok {
+		return "", ""
+	}
+
+	if reg.InitialAccount == nil {
+		return "", ""
+	}
+
+	return reg.InitialAccount(c)
+}
 
 // ErrInstallStateAlreadyUsed is returned when an install callback replays a
 // state another request already claimed or completed. The vendor's proof stays
@@ -46,7 +64,8 @@ var ErrInstallStateAlreadyUsed = errors.New("connector install state already use
 
 type (
 	ConnectorService struct {
-		svc *Service
+		svc              *Service
+		providerRegistry *provider.Registry
 	}
 
 	CreateConnectorRequest struct {
@@ -276,6 +295,11 @@ func (s *ConnectorService) Create(
 		func(ctx context.Context, tx pg.Tx) error {
 			if err := newConnector.Insert(ctx, tx, scope, s.svc.encryptionKey); err != nil {
 				return fmt.Errorf("cannot create connector: %w", err)
+			}
+
+			externalID, name := s.initialAccount(newConnector)
+			if _, err := coredata.UpsertInitialAccount(ctx, tx, scope, newConnector, externalID, name); err != nil {
+				return err
 			}
 
 			return nil
@@ -508,6 +532,11 @@ func (s *ConnectorService) CompleteInstall(
 
 				if err := cnnctr.Insert(ctx, tx, scope, s.svc.encryptionKey); err != nil {
 					return fmt.Errorf("cannot create connector: %w", err)
+				}
+
+				externalID, name := s.initialAccount(cnnctr)
+				if _, err := coredata.UpsertInitialAccount(ctx, tx, scope, cnnctr, externalID, name); err != nil {
+					return err
 				}
 			default:
 				return fmt.Errorf("cannot load connector: %w", err)

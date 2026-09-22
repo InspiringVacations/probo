@@ -32,7 +32,10 @@ import (
 
 func sentryRegistration() *Registration {
 	return &Registration{
-		Provider:    coredata.ConnectorProviderSentry,
+		Provider: coredata.ConnectorProviderSentry,
+		InitialAccount: initialAccount(func(s coredata.SentryConnectorSettings) string {
+			return s.OrganizationSlug
+		}),
 		DisplayName: "Sentry",
 		Endpoints: Endpoints{
 			Auth:  "https://sentry.io/oauth/authorize/",

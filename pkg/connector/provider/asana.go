@@ -32,7 +32,10 @@ import (
 
 func asanaRegistration() *Registration {
 	return &Registration{
-		Provider:    coredata.ConnectorProviderAsana,
+		Provider: coredata.ConnectorProviderAsana,
+		InitialAccount: initialAccount(func(s coredata.AsanaConnectorSettings) string {
+			return s.WorkspaceGID
+		}),
 		DisplayName: "Asana",
 		Endpoints: Endpoints{
 			Auth:  "https://app.asana.com/-/oauth_authorize",

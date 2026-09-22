@@ -35,7 +35,10 @@ func pagerdutyRegistration() *Registration {
 	// occasionally in the token response body) and is persisted on
 	// PagerDutyConnectorSettings by the OAuth callback handler.
 	return &Registration{
-		Provider:    coredata.ConnectorProviderPagerDuty,
+		Provider: coredata.ConnectorProviderPagerDuty,
+		InitialAccount: initialAccount(func(s coredata.PagerDutyConnectorSettings) string {
+			return s.Subdomain
+		}),
 		DisplayName: "PagerDuty",
 		Endpoints: Endpoints{
 			Auth:  "https://identity.pagerduty.com/oauth/authorize",

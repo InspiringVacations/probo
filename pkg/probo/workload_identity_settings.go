@@ -38,8 +38,10 @@ type (
 	WorkloadIdentitySettingsInput struct {
 		Provider                    coredata.ConnectorProvider
 		AWSRoleARN                  string
+		AWSMemberRoleName           string
 		GCPWorkloadIdentityProvider string
 		GCPServiceAccountEmail      string
+		GCPParent                   string
 		AzureTenantID               string
 		AzureClientID               string
 		AzureSubscriptionID         string
@@ -67,6 +69,8 @@ func MarshalWorkloadIdentitySettings(input WorkloadIdentitySettingsInput) ([]byt
 			return nil, err
 		}
 
+		settings.MemberRoleName = input.AWSMemberRoleName
+
 		return marshalWorkloadIdentitySettings(settings)
 	case coredata.ConnectorProviderGCP:
 		if input.GCPWorkloadIdentityProvider == "" || input.GCPServiceAccountEmail == "" {
@@ -84,12 +88,13 @@ func MarshalWorkloadIdentitySettings(input WorkloadIdentitySettingsInput) ([]byt
 		settings := coredata.GCPConnectorSettings{
 			WorkloadIdentityProvider: validated.WorkloadIdentityProvider,
 			ServiceAccountEmail:      validated.ServiceAccountEmail,
+			Parent:                   input.GCPParent,
 		}
 
 		return marshalWorkloadIdentitySettings(settings)
 	case coredata.ConnectorProviderAzure:
-		if input.AzureTenantID == "" || input.AzureClientID == "" || input.AzureSubscriptionID == "" {
-			return nil, fmt.Errorf("azureTenantId, azureClientId and azureSubscriptionId are required")
+		if input.AzureTenantID == "" || input.AzureClientID == "" {
+			return nil, fmt.Errorf("azureTenantId and azureClientId are required")
 		}
 
 		validated, err := cloudazure.NewConnectorSettings(

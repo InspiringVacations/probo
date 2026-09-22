@@ -32,7 +32,10 @@ import (
 
 func signozRegistration() *Registration {
 	return &Registration{
-		Provider:         coredata.ConnectorProviderSigNoz,
+		Provider: coredata.ConnectorProviderSigNoz,
+		InitialAccount: initialAccount(func(s coredata.SigNozConnectorSettings) string {
+			return s.BaseURL
+		}),
 		DisplayName:      "SigNoz",
 		DocumentationURL: accessReviewDocsURL("signoz"),
 		APIKey: &APIKeyConfig{

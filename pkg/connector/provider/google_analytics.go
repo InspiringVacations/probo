@@ -33,7 +33,10 @@ import (
 
 func googleAnalyticsRegistration() *Registration {
 	return &Registration{
-		Provider:    coredata.ConnectorProviderGoogleAnalytics,
+		Provider: coredata.ConnectorProviderGoogleAnalytics,
+		InitialAccount: initialAccount(func(s coredata.GoogleAnalyticsConnectorSettings) string {
+			return s.AccountID
+		}),
 		DisplayName: "Google Analytics",
 		Endpoints: Endpoints{
 			Auth:  "https://accounts.google.com/o/oauth2/v2/auth",
